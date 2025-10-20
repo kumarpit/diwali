@@ -15,7 +15,7 @@
   let offsetY = 0;
 
   // Drawing settings
-  let currentColor = '#0077ff';
+  let currentColor = '#000000';
   let isEraser = false;
   let isFillMode = false;
   let fireworkMode: 'anar' | 'chakri' | 'rocket' | null = null;
