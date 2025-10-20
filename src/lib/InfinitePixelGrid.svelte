@@ -313,6 +313,7 @@
 
   // Rocket particle state (stored between frames)
   const rocketStates = new Map<string, {
+    startDelay: number; // Random 1-10 second delay before first rocket
     lastLaunchTime: number;
     rockets: Array<{
       // Rocket particle (going up)
@@ -354,15 +355,20 @@
 
       // Initialize rocket state if not exists
       if (!rocketStates.has(stateKey)) {
-        rocketStates.set(stateKey, { lastLaunchTime: 0, rockets: [] });
+        // Random start delay between 1-10 seconds to desynchronize rockets on reload
+        const startDelay = 1 + Math.random() * 9;
+        rocketStates.set(stateKey, { startDelay, lastLaunchTime: 0, rockets: [] });
       }
 
       const state = rocketStates.get(stateKey)!;
       const rockets = state.rockets;
 
-      // Launch 1-3 rockets every 3 seconds
-      if (elapsed - state.lastLaunchTime >= 3) {
-        state.lastLaunchTime = elapsed;
+      // Use modulo with offset to permanently desynchronize launch timing
+      const offsetElapsed = elapsed + state.startDelay;
+      const shouldLaunch = Math.floor(offsetElapsed / 3) > Math.floor(state.lastLaunchTime / 3);
+
+      if (shouldLaunch) {
+        state.lastLaunchTime = offsetElapsed;
         const numRockets = 1 + Math.floor(Math.random() * 3); // Random 1-3 rockets
 
         for (let r = 0; r < numRockets; r++) {
@@ -397,7 +403,7 @@
             // Create explosion particles (reduced to 50 for better performance)
             for (let p = 0; p < 50; p++) {
               const angle = Math.random() * Math.PI * 2;
-              const speed = 1 + Math.random() * 4; // Slower particle speed (1-5 instead of 2-10)
+              const speed = 1.5 + Math.random() * 1.5; // Controlled particle speed (1.5-3)
               rocket.particles.push({
                 x: rocket.x,
                 y: rocket.y,
@@ -441,10 +447,12 @@
             continue;
           }
 
-          // Draw particle with fading - use particle's own hue for rainbow effect
+          // Draw particle with smooth fading - use particle's own hue for rainbow effect
           const alpha = particle.lifespan / 255;
-          const brightness = 35 + alpha * 30; // Darker colors (35-65%) for better visibility on white
-          const saturation = 80 + alpha * 20; // High saturation for vibrant colors
+          // Ease-out fade for smoother transition
+          const fadeProgress = 1 - Math.pow(1 - alpha, 2);
+          const brightness = 50 + (1 - fadeProgress) * 45; // Fade from 50% to 95% (nearly white)
+          const saturation = fadeProgress * 90; // Desaturate from 90% to 0% as it fades
           const color = `hsl(${particle.hue}, ${saturation}%, ${brightness}%)`;
           drawPixel(Math.floor(particle.x), Math.floor(particle.y), color);
         }

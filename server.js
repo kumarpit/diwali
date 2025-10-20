@@ -12,6 +12,7 @@ const wss = new WebSocketServer({ noServer: true });
 
 // Grid state management
 const CHUNK_SIZE = 256;
+const EMPTY_PIXEL = 0xFFFFFFFF; // Use max value as "empty" marker
 const chunks = new Map();
 const subscriptions = new Map();
 
@@ -29,7 +30,10 @@ function broadcastToAll(message) {
 async function getChunk(x, y) {
   const key = `${x},${y}`;
   if (!chunks.has(key)) {
-    chunks.set(key, new Uint32Array(CHUNK_SIZE * CHUNK_SIZE));
+    const chunk = new Uint32Array(CHUNK_SIZE * CHUNK_SIZE);
+    // Initialize all pixels to EMPTY_PIXEL
+    chunk.fill(EMPTY_PIXEL);
+    chunks.set(key, chunk);
   }
   return chunks.get(key);
 }
@@ -97,7 +101,7 @@ wss.on('connection', (ws) => {
         // Convert Uint32Array to object for JSON serialization
         const pixels = {};
         for (let i = 0; i < chunk.length; i++) {
-          if (chunk[i] !== 0) {
+          if (chunk[i] !== EMPTY_PIXEL) {
             const x = i % CHUNK_SIZE;
             const y = Math.floor(i / CHUNK_SIZE);
             pixels[`${x},${y}`] = '#' + chunk[i].toString(16).padStart(6, '0');
