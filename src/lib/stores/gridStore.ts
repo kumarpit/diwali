@@ -42,7 +42,8 @@ export const gridStore = {
 
   connect() {
     if (ws) return;
-    ws = new WebSocket(`ws://${location.host}/api/ws`);
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${protocol}://${location.host}/api/ws`);
 
     ws.onopen = () => {
       console.log('WebSocket connected');
