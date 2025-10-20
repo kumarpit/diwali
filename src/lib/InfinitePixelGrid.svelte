@@ -312,24 +312,27 @@
   }
 
   // Rocket particle state (stored between frames)
-  const rocketStates = new Map<string, Array<{
-    // Rocket particle (going up)
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    exploded: boolean;
-    hue: number;
-    // Explosion particles
-    particles: Array<{
+  const rocketStates = new Map<string, {
+    lastLaunchTime: number;
+    rockets: Array<{
+      // Rocket particle (going up)
       x: number;
       y: number;
       vx: number;
       vy: number;
-      lifespan: number;
-      hue: number; // Each particle gets its own color
+      exploded: boolean;
+      hue: number;
+      // Explosion particles
+      particles: Array<{
+        x: number;
+        y: number;
+        vx: number;
+        vy: number;
+        lifespan: number;
+        hue: number; // Each particle gets its own color
+      }>;
     }>;
-  }>>();
+  }>();
 
   function drawRocket(baseX: number, baseY: number, lit: boolean, litAt: number) {
     // Draw rocket launcher base (bottle-like structure)
@@ -351,23 +354,29 @@
 
       // Initialize rocket state if not exists
       if (!rocketStates.has(stateKey)) {
-        rocketStates.set(stateKey, []);
+        rocketStates.set(stateKey, { lastLaunchTime: 0, rockets: [] });
       }
 
-      const rockets = rocketStates.get(stateKey)!;
+      const state = rocketStates.get(stateKey)!;
+      const rockets = state.rockets;
 
-      // Launch new rocket periodically (every 1 second)
-      if (Math.floor(elapsed * 1.5) > rockets.length) {
-        const hue = Math.random() * 360;
-        rockets.push({
-          x: baseX + (Math.random() - 0.5) * 2, // Start near base with slight x variation
-          y: baseY - 5, // Start above the bottle neck to avoid visual glitch
-          vx: (Math.random() - 0.5) * 0.3, // Slight horizontal drift
-          vy: -(4 + Math.random() * 2), // Slower initial upward velocity (4-6 instead of 8-12)
-          exploded: false,
-          hue: hue,
-          particles: []
-        });
+      // Launch 1-3 rockets every 3 seconds
+      if (elapsed - state.lastLaunchTime >= 3) {
+        state.lastLaunchTime = elapsed;
+        const numRockets = 1 + Math.floor(Math.random() * 3); // Random 1-3 rockets
+
+        for (let r = 0; r < numRockets; r++) {
+          const hue = Math.random() * 360;
+          rockets.push({
+            x: baseX + (Math.random() - 0.5) * 2, // Start near base with slight x variation
+            y: baseY - 5, // Start above the bottle neck to avoid visual glitch
+            vx: (Math.random() - 0.5) * 0.3, // Slight horizontal drift
+            vy: -(4 + Math.random() * 2), // Slower initial upward velocity (4-6 instead of 8-12)
+            exploded: false,
+            hue: hue,
+            particles: []
+          });
+        }
       }
 
       const gravity = 0.15; // Reduced gravity for slower, more graceful motion
@@ -385,8 +394,8 @@
           // Check if rocket reached peak (velocity changed direction)
           if (rocket.vy >= 0) {
             rocket.exploded = true;
-            // Create explosion particles (100 particles like TheCodingTrain)
-            for (let p = 0; p < 100; p++) {
+            // Create explosion particles (reduced to 50 for better performance)
+            for (let p = 0; p < 50; p++) {
               const angle = Math.random() * Math.PI * 2;
               const speed = 1 + Math.random() * 4; // Slower particle speed (1-5 instead of 2-10)
               rocket.particles.push({
@@ -424,7 +433,7 @@
           particle.vy *= 0.95;
           particle.x += particle.vx;
           particle.y += particle.vy;
-          particle.lifespan -= 3; // Slower fade out for longer-lasting particles
+          particle.lifespan -= 4; // Faster fade out for better performance
 
           // Remove dead particles
           if (particle.lifespan <= 0) {

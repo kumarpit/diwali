@@ -55,16 +55,35 @@ function subscribeChunk(x, y, ws) {
     subscriptions.set(key, new Set());
   }
   subscriptions.get(key).add(ws);
-  ws.on('close', () => {
-    const subs = subscriptions.get(key);
-    if (subs) {
-      subs.delete(ws);
-    }
-  });
+
+  // Track subscribed chunks on the WebSocket itself
+  if (!ws.subscribedChunks) {
+    ws.subscribedChunks = new Set();
+  }
+  ws.subscribedChunks.add(key);
 }
 
 wss.on('connection', (ws) => {
   console.log('WebSocket client connected');
+
+  // Add cleanup handler ONCE per connection
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected');
+    // Clean up all chunk subscriptions for this client
+    if (ws.subscribedChunks) {
+      ws.subscribedChunks.forEach((chunkKey) => {
+        const subs = subscriptions.get(chunkKey);
+        if (subs) {
+          subs.delete(ws);
+          // Clean up empty subscription sets
+          if (subs.size === 0) {
+            subscriptions.delete(chunkKey);
+          }
+        }
+      });
+      ws.subscribedChunks.clear();
+    }
+  });
 
   ws.on('message', async (msg) => {
     try {
@@ -137,10 +156,6 @@ wss.on('connection', (ws) => {
     } catch (err) {
       console.error('WebSocket message error:', err);
     }
-  });
-
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
   });
 });
 
