@@ -70,6 +70,12 @@ function subscribeChunk(x, y, ws) {
 wss.on('connection', (ws) => {
   console.log('WebSocket client connected');
 
+  // Heartbeat mechanism to detect disconnected clients
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   // Add cleanup handler ONCE per connection
   ws.on('close', () => {
     console.log('WebSocket client disconnected');
@@ -161,6 +167,23 @@ wss.on('connection', (ws) => {
       console.error('WebSocket message error:', err);
     }
   });
+});
+
+// Ping all clients every 30 seconds to keep connections alive
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log('Terminating inactive WebSocket connection');
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000); // 30 seconds
+
+// Clean up interval on server close
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
 });
 
 // Handle upgrade requests

@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { toast } from 'svelte-sonner';
 // import { CHUNK_SIZE } from '$lib/server/gridManager'; // or duplicate constant locally
 
 const CHUNK_SIZE = 256;
@@ -19,6 +20,10 @@ const _chunks = writable<Map<ChunkKey, Chunk>>(new Map());
 const _fireworks = writable<Map<string, Firework>>(new Map());
 let ws: WebSocket | null = null;
 let messageQueue: string[] = [];
+let reconnectTimeout: number | null = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY = 30000; // Max 30 seconds between reconnection attempts
+let isIntentionalDisconnect = false;
 
 function chunkKey(cx: number, cy: number) {
   return `${cx},${cy}`;
@@ -42,11 +47,24 @@ export const gridStore = {
 
   connect() {
     if (ws) return;
+
+    isIntentionalDisconnect = false;
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+
+    // Show connecting toast only on first connection or reconnection attempts
+    if (reconnectAttempts > 0) {
+      toast.loading(`Reconnecting... (attempt ${reconnectAttempts})`, { id: 'ws-status' });
+    }
+
     ws = new WebSocket(`${protocol}://${location.host}/api/ws`);
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      reconnectAttempts = 0; // Reset reconnection counter on successful connection
+
+      // Show success toast
+      toast.success('Connected', { id: 'ws-status', duration: 2000 });
+
       // Send any queued messages
       while (messageQueue.length > 0) {
         const message = messageQueue.shift();
@@ -99,7 +117,40 @@ export const gridStore = {
     ws.onclose = () => {
       console.log('WebSocket disconnected');
       ws = null;
+
+      // Only attempt reconnection if it wasn't an intentional disconnect
+      if (!isIntentionalDisconnect) {
+        toast.error('Disconnected', { id: 'ws-status', duration: 2000 });
+
+        // Clear any existing reconnection timeout
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+        }
+
+        // Calculate exponential backoff delay (1s, 2s, 4s, 8s, ..., max 30s)
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), MAX_RECONNECT_DELAY);
+
+        console.log(`Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+
+        reconnectTimeout = window.setTimeout(() => {
+          gridStore.connect();
+        }, delay);
+      }
     };
+  },
+
+  disconnect() {
+    isIntentionalDisconnect = true;
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+    reconnectAttempts = 0;
   },
 
   joinChunk(cx: number, cy: number) {
