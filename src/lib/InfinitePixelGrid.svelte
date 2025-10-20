@@ -23,6 +23,9 @@
   // Chunk storage - subscribe to gridStore for synced data
   let chunks = new Map<string, Map<string, string>>();
 
+  // Track which chunks we've already subscribed to
+  const subscribedChunks = new Set<string>();
+
   // Subscribe to gridStore for updates from other users
   gridStore.subscribe((storeChunks) => {
     chunks = storeChunks;
@@ -37,8 +40,19 @@
   });
 
   // --- Pixel helpers ---
+  function ensureChunkSubscribed(chunkX: number, chunkY: number) {
+    const key = chunkKey(chunkX, chunkY);
+    if (!subscribedChunks.has(key)) {
+      subscribedChunks.add(key);
+      gridStore.joinChunk(chunkX, chunkY);
+    }
+  }
+
   function setPixel(worldX: number, worldY: number, color: string) {
     const { chunkX, chunkY, localX, localY } = worldToChunk(worldX, worldY);
+
+    // Ensure we're subscribed to this chunk
+    ensureChunkSubscribed(chunkX, chunkY);
 
     // Send update to server to sync with other users
     gridStore.setPixel(chunkX, chunkY, localX, localY, color);
@@ -73,6 +87,13 @@
     const chunkY0 = Math.floor(worldTop / CHUNK_SIZE);
     const chunkX1 = Math.floor(worldRight / CHUNK_SIZE);
     const chunkY1 = Math.floor(worldBottom / CHUNK_SIZE);
+
+    // Subscribe to all visible chunks
+    for (let cx = chunkX0; cx <= chunkX1; cx++) {
+      for (let cy = chunkY0; cy <= chunkY1; cy++) {
+        ensureChunkSubscribed(cx, cy);
+      }
+    }
 
     // Draw visible pixels
     for (let cx = chunkX0; cx <= chunkX1; cx++) {
@@ -290,6 +311,26 @@
     }
   }
 
+  // Rocket particle state (stored between frames)
+  const rocketStates = new Map<string, Array<{
+    // Rocket particle (going up)
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    exploded: boolean;
+    hue: number;
+    // Explosion particles
+    particles: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      lifespan: number;
+      hue: number; // Each particle gets its own color
+    }>;
+  }>>();
+
   function drawRocket(baseX: number, baseY: number, lit: boolean, litAt: number) {
     // Draw rocket launcher base (bottle-like structure)
     // Base stand (3x2 pixels)
@@ -306,68 +347,102 @@
 
     if (lit) {
       const elapsed = (Date.now() - litAt) / 1000;
-      const rocketCycleDuration = 2.5; // Each rocket cycle takes 2.5 seconds
+      const stateKey = `${baseX},${baseY}`;
 
-      // Launch multiple rockets in sequence
-      for (let rocketIndex = 0; rocketIndex < 3; rocketIndex++) {
-        const rocketOffset = rocketIndex * 0.8; // Stagger rocket launches
-        const rocketLife = ((elapsed + rocketOffset) % rocketCycleDuration) / rocketCycleDuration;
+      // Initialize rocket state if not exists
+      if (!rocketStates.has(stateKey)) {
+        rocketStates.set(stateKey, []);
+      }
 
-        if (rocketLife < 0.9) { // Rocket is active for first 90% of cycle
-          const launchPhase = Math.min(rocketLife / 0.4, 1); // Launch takes 40% of cycle
-          const explosionPhase = Math.max((rocketLife - 0.4) / 0.5, 0); // Explosion after launch
+      const rockets = rocketStates.get(stateKey)!;
 
-          // Rocket position (goes up)
-          const rocketHeight = launchPhase * 25;
-          const rocketX = Math.floor(baseX + Math.sin(rocketIndex * 2) * 2);
-          const rocketY = Math.floor(baseY - 4 - rocketHeight);
+      // Launch new rocket periodically (every 1 second)
+      if (Math.floor(elapsed * 1.5) > rockets.length) {
+        const hue = Math.random() * 360;
+        rockets.push({
+          x: baseX + (Math.random() - 0.5) * 2, // Start near base with slight x variation
+          y: baseY - 5, // Start above the bottle neck to avoid visual glitch
+          vx: (Math.random() - 0.5) * 0.3, // Slight horizontal drift
+          vy: -(4 + Math.random() * 2), // Slower initial upward velocity (4-6 instead of 8-12)
+          exploded: false,
+          hue: hue,
+          particles: []
+        });
+      }
 
-          if (explosionPhase === 0) {
-            // Draw rocket body (going up)
-            drawPixel(rocketX, rocketY, '#ff0000');
-            drawPixel(rocketX, rocketY + 1, '#ff3300');
+      const gravity = 0.15; // Reduced gravity for slower, more graceful motion
 
-            // Rocket trail (sparks following behind)
-            for (let t = 0; t < 5; t++) {
-              const trailY = rocketY + 2 + t;
-              const trailAlpha = 1 - (t / 5);
-              if (trailAlpha > 0.3) {
-                const trailColors = ['#ffff00', '#ff9900', '#ff6600', '#ff3300'];
-                drawPixel(rocketX, trailY, trailColors[Math.min(t, 3)]);
-              }
+      // Update and draw all active rockets
+      for (let i = rockets.length - 1; i >= 0; i--) {
+        const rocket = rockets[i];
+
+        if (!rocket.exploded) {
+          // Apply physics to rocket
+          rocket.vy += gravity; // Apply gravity
+          rocket.x += rocket.vx;
+          rocket.y += rocket.vy;
+
+          // Check if rocket reached peak (velocity changed direction)
+          if (rocket.vy >= 0) {
+            rocket.exploded = true;
+            // Create explosion particles (100 particles like TheCodingTrain)
+            for (let p = 0; p < 100; p++) {
+              const angle = Math.random() * Math.PI * 2;
+              const speed = 1 + Math.random() * 4; // Slower particle speed (1-5 instead of 2-10)
+              rocket.particles.push({
+                x: rocket.x,
+                y: rocket.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                lifespan: 255,
+                hue: Math.random() * 360 // Each particle gets a random color
+              });
             }
           } else {
-            // Explosion particle system
-            const numParticles = 30;
+            // Draw rocket going up
+            const hue = rocket.hue;
+            const color = `hsl(${hue}, 100%, 50%)`;
+            drawPixel(Math.floor(rocket.x), Math.floor(rocket.y), color);
 
-            for (let p = 0; p < numParticles; p++) {
-              const angle = (p / numParticles) * Math.PI * 2;
-              const speed = 3 + (p % 5);
-              const particleLife = explosionPhase;
-
-              // Particle spreads out from explosion center
-              const px = Math.floor(rocketX + Math.cos(angle) * speed * particleLife);
-              const py = Math.floor(rocketY + Math.sin(angle) * speed * particleLife + particleLife * 2); // Gravity effect
-
-              // Color progression: white -> yellow -> orange -> red -> fade
-              const colorPhase = Math.min(particleLife * 2, 1);
-              const colors = ['#ffffff', '#ffff99', '#ffcc00', '#ff9900', '#ff6600', '#ff3300', '#cc0000'];
-              const colorIdx = Math.min(Math.floor(colorPhase * 6), 6);
-
-              if (particleLife < 0.8) { // Fade out particles near end
-                drawPixel(px, py, colors[colorIdx]);
-              }
-            }
-
-            // Central bright flash
-            if (explosionPhase < 0.3) {
-              drawPixel(rocketX, rocketY, '#ffffff');
-              drawPixel(rocketX + 1, rocketY, '#ffff99');
-              drawPixel(rocketX - 1, rocketY, '#ffff99');
-              drawPixel(rocketX, rocketY + 1, '#ffff99');
-              drawPixel(rocketX, rocketY - 1, '#ffff99');
+            // Trail
+            for (let t = 1; t < 4; t++) {
+              const trailY = Math.floor(rocket.y + t);
+              const trailX = Math.floor(rocket.x);
+              const brightness = 70 - t * 10;
+              drawPixel(trailX, trailY, `hsl(${hue}, 100%, ${brightness}%)`);
             }
           }
+        }
+
+        // Update and draw explosion particles
+        for (let p = rocket.particles.length - 1; p >= 0; p--) {
+          const particle = rocket.particles[p];
+
+          // Apply physics to particle
+          particle.vy += gravity; // Apply gravity
+          particle.vx *= 0.95; // Less air resistance for smoother motion
+          particle.vy *= 0.95;
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+          particle.lifespan -= 3; // Slower fade out for longer-lasting particles
+
+          // Remove dead particles
+          if (particle.lifespan <= 0) {
+            rocket.particles.splice(p, 1);
+            continue;
+          }
+
+          // Draw particle with fading - use particle's own hue for rainbow effect
+          const alpha = particle.lifespan / 255;
+          const brightness = 35 + alpha * 30; // Darker colors (35-65%) for better visibility on white
+          const saturation = 80 + alpha * 20; // High saturation for vibrant colors
+          const color = `hsl(${particle.hue}, ${saturation}%, ${brightness}%)`;
+          drawPixel(Math.floor(particle.x), Math.floor(particle.y), color);
+        }
+
+        // Remove rocket if explosion is done
+        if (rocket.exploded && rocket.particles.length === 0) {
+          rockets.splice(i, 1);
         }
       }
 
@@ -379,6 +454,10 @@
           drawPixel(sparkX, sparkY, ['#ffff00', '#ff9900', '#ff6600'][i]);
         }
       }
+    } else {
+      // Clear rocket state when not lit
+      const stateKey = `${baseX},${baseY}`;
+      rocketStates.delete(stateKey);
     }
   }
 
@@ -587,7 +666,7 @@
     rafId = requestAnimationFrame(draw);
 
     gridStore.connect();
-    gridStore.joinChunk(0, 0); // load central chunk
+    // Chunks will be automatically subscribed when they become visible
   });
 
   onDestroy(() => {
