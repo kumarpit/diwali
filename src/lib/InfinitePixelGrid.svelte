@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { CHUNK_SIZE, worldToChunk, chunkKey } from '$lib/shared/gridMath';
   import { gridStore, fireworksStore, type Firework } from '$lib/stores/gridStore';
-  import { Eraser, PaintBucket, Triangle, Circle, Rocket } from 'lucide-svelte';
+  import { Eraser, PaintBucket, Triangle, Circle, Rocket, Moon } from 'lucide-svelte';
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -19,6 +19,7 @@
   let isEraser = false;
   let isFillMode = false;
   let fireworkMode: 'anar' | 'chakri' | 'rocket' | null = null;
+  let isDarkMode = false;
 
   // Chunk storage - subscribe to gridStore for synced data
   let chunks = new Map<string, Map<string, string>>();
@@ -576,6 +577,10 @@
     fireworkMode = fireworkMode === 'rocket' ? null : 'rocket';
   }
 
+  function toggleDarkMode() {
+    isDarkMode = !isDarkMode;
+  }
+
   function getPixelColor(worldX: number, worldY: number): string {
     const { chunkX, chunkY, localX, localY } = worldToChunk(worldX, worldY);
     const key = chunkKey(chunkX, chunkY);
@@ -698,7 +703,7 @@
   });
 </script>
 
-<div class="toolbar">
+<div class="toolbar" class:inverted={isDarkMode}>
   <div class="color-picker-wrapper">
     <input
       type="color"
@@ -747,9 +752,17 @@
   >
     <Rocket size={18} />
   </button>
+  <button
+    class="tool-btn"
+    class:active={isDarkMode}
+    on:click={toggleDarkMode}
+    title="Toggle dark mode"
+  >
+    <Moon size={18} />
+  </button>
 </div>
 
-<canvas bind:this={canvas} class="grid"></canvas>
+<canvas bind:this={canvas} class="grid" class:inverted={isDarkMode}></canvas>
 
 <style>
   .grid {
@@ -758,6 +771,10 @@
     background: #fafafa;
     display: block;
     touch-action: none;
+  }
+
+  .grid.inverted {
+    filter: invert(1);
   }
 
   .toolbar {
@@ -772,6 +789,10 @@
     border-radius: 12px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
     z-index: 1000;
+  }
+
+  .toolbar.inverted {
+    filter: invert(1);
   }
 
   .color-picker-wrapper {
